@@ -1,6 +1,6 @@
 package skibcsit.swagger.api.generator
 
-import io.swagger.v3.oas.models.media.{ArraySchema, BooleanSchema, IntegerSchema, NumberSchema, Schema, StringSchema}
+import io.swagger.v3.oas.models.media._
 import io.swagger.v3.oas.models.parameters.{Parameter, RequestBody}
 import io.swagger.v3.oas.models.{OpenAPI, Operation}
 import treehugger.forest._
@@ -19,9 +19,13 @@ object TreeHuggerGenerator extends Generator {
   private final val STRING: Type = TYPE_REF("String")
   private final val ??? : Throw = THROW(NEW(REF("NotImplementedError")))
 
-  override def generate(name: String, openAPI: OpenAPI): String = treeToString(generateObject(name, SwaggerReader.getMethods(openAPI).map(generateMethod)))
+  override def generateClasses(`package`: String, openAPI: OpenAPI): String = treeToString(generatePackageObject(`package`, openAPI))
 
-  private def generateObject(name: String, methods: Iterable[DefDef]): ModuleDef = OBJECTDEF(name).:=(BLOCK(methods))
+  private def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef = PACKAGEOBJECTDEF(getSuffix('.')(`package`)).:=(BLOCK()).inPackage(`package`.substring(0, `package`.length - getSuffix('.')(`package`).length - 1))
+
+  override def generateService(`package`: String, openAPI: OpenAPI): String = treeToString(generateObject(`package`, SwaggerReader.getMethods(openAPI).map(generateMethod)))
+
+  private def generateObject(`package`: String, methods: Iterable[DefDef]): PackageDef = OBJECTDEF("Service").:=(BLOCK(methods)).inPackage(`package`)
 
   private def generateMethod(operation: Operation): DefDef = DEF(operation.getOperationId).withParams(generateParams(operation)).:=(???)
 
@@ -58,8 +62,8 @@ object TreeHuggerGenerator extends Generator {
     case _ => DOUBLE
   }
 
-  private def typeFromSchema(schema: Schema[_]): Type = if (schema.getName != null) TYPE_REF(schema.getName) else if (schema.get$ref() != null) TYPE_REF(getSuffix(schema.get$ref())) else STRING
+  private def typeFromSchema(schema: Schema[_]): Type = if (schema.getName != null) TYPE_REF(schema.getName) else if (schema.get$ref() != null) TYPE_REF(getSuffix('/')(schema.get$ref())) else STRING
 
-  private def getSuffix(string: String): String = if (string.contains('/')) string.substring(string.lastIndexOf('/') + 1) else string
+  private def getSuffix(c: Char)(string: String): String = if (string.contains(c)) string.substring(string.lastIndexOf(c) + 1) else string
 
 }
