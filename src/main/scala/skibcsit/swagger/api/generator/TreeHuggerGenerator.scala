@@ -27,9 +27,16 @@ object TreeHuggerGenerator extends Generator {
 
   override def generateService(`package`: String, openAPI: OpenAPI): String = treeToString(generateServiceObject(`package`, SwaggerReader.getMethods(openAPI).map(generateMethod)))
 
-  def generateClasses(openAPI: OpenAPI): Iterable[ClassDef] = Option(Option(openAPI.getComponents).map(_.getSchemas).orNull).map(_.asScala.map((generateClass _).tupled)).getOrElse(List.empty)
+  def generateClasses(openAPI: OpenAPI): Iterable[DefTree] = Option(Option(openAPI.getComponents).map(_.getSchemas).orNull).map(_.asScala.map((generateClass _).tupled)).getOrElse(List.empty)
 
-  def generateClass(name: String, schema: Schema[_]): ClassDef = CASECLASSDEF(name)
+  def generateClass(name: String, schema: Schema[_]): DefTree = schema match {
+    case objectSchema: ObjectSchema => CASECLASSDEF(name).withParams(generateProperties(withRequired(objectSchema.getProperties, objectSchema.getRequired)))
+    case _ => TYPEVAR(name).:=(STRING)
+  }
+
+  def withRequired(properties: util.Map[String, Schema[_]], required: util.List[String]): Iterable[(String, Schema[_], Boolean)] = Option(properties).map(_.asScala).map(_.map(tuple => (tuple._1, tuple._2, required != null && required.contains(tuple._1)))).getOrElse(List.empty)
+
+  def generateProperties(properties: Iterable[(String, Schema[_], Boolean)]): Iterable[ValDef] = properties.map(tuple => generateParam(tuple._1, generateParamType(tuple._2), tuple._3))
 
   def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef = PACKAGEOBJECTDEF(getPackageSuffix(`package`)).:=(BLOCK(generateClasses(openAPI))).inPackage(`package`.substring(0, `package`.lastIndexOf('.')))
 
