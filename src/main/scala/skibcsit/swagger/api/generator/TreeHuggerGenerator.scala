@@ -20,13 +20,18 @@ object TreeHuggerGenerator extends Generator {
   val DOUBLE: Type = TYPE_REF("Double")
   val FLOAT: Type = TYPE_REF("Float")
   val STRING: Type = TYPE_REF("String")
+  val BYTE_ARRAY_INPUT_STREAM: Type = TYPE_ARRAY(TYPE_REF("Byte"))
   val ??? : Ident = REF("???")
 
-  override def generateClasses(`package`: String, openAPI: OpenAPI): String = treeToString(generatePackageObject(`package`, openAPI))
+  override def generatePackage(`package`: String, openAPI: OpenAPI): String = treeToString(generatePackageObject(`package`, openAPI))
 
   override def generateService(`package`: String, openAPI: OpenAPI): String = treeToString(generateServiceObject(`package`, SwaggerReader.getMethods(openAPI).map(generateMethod)))
 
-  def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef = PACKAGEOBJECTDEF(getPackageSuffix(`package`)).:=(BLOCK()).inPackage(`package`.substring(0, `package`.lastIndexOf('.')))
+  def generateClasses(openAPI: OpenAPI): Iterable[ClassDef] = Option(Option(openAPI.getComponents).map(_.getSchemas).orNull).map(_.asScala.map((generateClass _).tupled)).getOrElse(List.empty)
+
+  def generateClass(name: String, schema: Schema[_]): ClassDef = CASECLASSDEF(name)
+
+  def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef = PACKAGEOBJECTDEF(getPackageSuffix(`package`)).:=(BLOCK(generateClasses(openAPI))).inPackage(`package`.substring(0, `package`.lastIndexOf('.')))
 
   def generateServiceObject(`package`: String, methods: Iterable[DefDef]): PackageDef = OBJECTDEF(SERVICE_NAME).:=(BLOCK(methods)).inPackage(`package`)
 
@@ -57,6 +62,8 @@ object TreeHuggerGenerator extends Generator {
     case numberSchema: NumberSchema => numberFromFormat(numberSchema.getFormat)
     case _: BooleanSchema => BOOLEAN
     case _: StringSchema => STRING
+    case _: FileSchema => BYTE_ARRAY_INPUT_STREAM
+    case _: ByteArraySchema => BYTE_ARRAY_INPUT_STREAM
     case arraySchema: ArraySchema => TYPE_ARRAY(generateParamType(arraySchema.getItems))
     case null => STRING
     case _ => typeFromSchema(schema)
@@ -72,7 +79,9 @@ object TreeHuggerGenerator extends Generator {
     case _ => DOUBLE
   }
 
-  def typeFromSchema(schema: Schema[_]): Type = if (schema.getName != null) TYPE_REF(schema.getName) else if (schema.get$ref() != null) TYPE_REF(getRefSuffix(schema.get$ref())) else STRING
+  def generateTupleType(schema: Schema[_]): Type = TYPE_TUPLE(schema.getProperties.asScala.values.map(generateParamType))
+
+  def typeFromSchema(schema: Schema[_]): Type = if (schema.getName != null) TYPE_REF(schema.getName) else if (schema.get$ref() != null) TYPE_REF(getRefSuffix(schema.get$ref())) else if (schema.getProperties != null && !schema.getProperties.isEmpty) generateTupleType(schema) else STRING
 
   def getSuffix(separator: Char)(string: String): String = string.split(separator).last
 

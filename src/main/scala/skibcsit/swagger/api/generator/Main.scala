@@ -41,7 +41,7 @@ object Main {
             println(exception.getMessage)
           case Success(openAPI) =>
             SwaggerWriter.write(outputDirectory + SERVICE_FILENAME, generator.generateService(`package`, openAPI))
-            SwaggerWriter.write(outputDirectory + PACKAGE_FILENAME, generator.generateClasses(`package`, openAPI))
+            SwaggerWriter.write(outputDirectory + PACKAGE_FILENAME, generator.generatePackage(`package`, openAPI))
         }
     }
   }
