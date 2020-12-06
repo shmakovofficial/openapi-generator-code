@@ -17,7 +17,7 @@ object TreeHuggerGenerator extends Generator {
   private final val DOUBLE: Type = TYPE_REF("Double")
   private final val FLOAT: Type = TYPE_REF("Float")
   private final val STRING: Type = TYPE_REF("String")
-  private final val ??? : Throw = THROW(NEW(REF("NotImplementedError")))
+  private final val ??? : Ident = REF("???")
 
   override def generateClasses(`package`: String, openAPI: OpenAPI): String = treeToString(generatePackageObject(`package`, openAPI))
 
