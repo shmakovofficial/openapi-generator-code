@@ -1,4 +1,4 @@
-name := "swagger-api-gen"
+name := "openapi-generator-code"
 
 version := "0.1"
 

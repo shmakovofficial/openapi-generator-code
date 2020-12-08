@@ -1,4 +1,4 @@
-package skibcsit.swagger.api.generator
+package skibcsit.openapi.generator.code
 
 import org.apache.commons.cli.{DefaultParser, HelpFormatter, Options}
 
@@ -7,7 +7,7 @@ import scala.util.{Failure, Success, Try}
 object Main {
   val SERVICE_FILENAME: String = "Service.scala"
   val PACKAGE_FILENAME: String = "package.scala"
-  val APP_NAME: String = "swagger-api-gen"
+  val APP_NAME: String = "openapi-generator-code"
 
   val DEFAULT_INPUT_FILE: String = "https://petstore.swagger.io/v2/swagger.json"
   val DEFAULT_OUTPUT_DIRECTORY: String = "./target/"
@@ -36,12 +36,12 @@ object Main {
         val outputDirectory: String = Option(commandLine.getOptionValue(OUTPUT_DIRECTORY_OPTION)).getOrElse(DEFAULT_OUTPUT_DIRECTORY)
         val generator: Generator = Option(commandLine.getOptionValue(GENERATOR_OPTION)).map(getGenerator).getOrElse(DEFAULT_GENERATOR)
         val `package`: String = Option(commandLine.getOptionValue(PACKAGE_OPTION)).getOrElse(DEFAULT_PACKAGE)
-        Try(SwaggerReader.read(inputFile)) match {
+        Try(OpenAPIReader.read(inputFile)) match {
           case Failure(exception) =>
             println(exception.getMessage)
           case Success(openAPI) =>
-            SwaggerWriter.write(outputDirectory + SERVICE_FILENAME, generator.generateService(`package`, openAPI))
-            SwaggerWriter.write(outputDirectory + PACKAGE_FILENAME, generator.generatePackage(`package`, openAPI))
+            OpenAPIWriter.write(outputDirectory + SERVICE_FILENAME, generator.generateService(`package`, openAPI))
+            OpenAPIWriter.write(outputDirectory + PACKAGE_FILENAME, generator.generatePackage(`package`, openAPI))
         }
     }
   }

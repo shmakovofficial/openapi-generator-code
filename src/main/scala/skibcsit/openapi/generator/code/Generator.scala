@@ -1,4 +1,4 @@
-package skibcsit.swagger.api.generator
+package skibcsit.openapi.generator.code
 
 import io.swagger.v3.oas.models.OpenAPI
 
