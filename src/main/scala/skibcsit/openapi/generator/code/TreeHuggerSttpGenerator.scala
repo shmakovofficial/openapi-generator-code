@@ -4,17 +4,17 @@ import io.swagger.v3.oas.models.media._
 import io.swagger.v3.oas.models.parameters.{Parameter, RequestBody}
 import io.swagger.v3.oas.models.responses.ApiResponses
 import io.swagger.v3.oas.models.{OpenAPI, Operation}
+import treehugger.forest
 import treehugger.forest._
 import treehuggerDSL._
 
 import java.util
 import scala.jdk.CollectionConverters._
 
-object TreeHuggerGenerator extends Generator {
+object TreeHuggerSttpGenerator extends Generator {
 
   val CODE_200: String = "200"
   val CODE_DEFAULT: String = "default"
-  val SERVICE_NAME: String = "Service"
   val BOOLEAN: Type = TYPE_REF("Boolean")
   val INTEGER: Type = TYPE_REF("Integer")
   val LONG: Type = TYPE_REF("Long")
@@ -22,12 +22,20 @@ object TreeHuggerGenerator extends Generator {
   val FLOAT: Type = TYPE_REF("Float")
   val STRING: Type = TYPE_REF("String")
   val BYTE_ARRAY_INPUT_STREAM: Type = TYPE_ARRAY(TYPE_REF("Byte"))
+  val BACKEND: Type = TYPE_REF("SttpBackend[Identity, Nothing, NothingT]")
+  val getRefSuffix: String => String = getSuffix('/')
+  val getPackageSuffix: String => String = getSuffix('.')
 
-  override def generatePackage(`package`: String, openAPI: OpenAPI): String =
+  def getSuffix(separator: Char)(string: String): String =
+    string.split(separator).last
+
+  override def generatePackage(`package`: String, path: String, openAPI: OpenAPI): String =
     treeToString(generatePackageObject(`package`, openAPI))
 
-  override def generateService(`package`: String, openAPI: OpenAPI): String =
-    treeToString(generateServiceTrait(`package`, OpenAPIReader.getMethods(openAPI).map(generateMethod)))
+  def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef =
+    PACKAGEOBJECTDEF(getPackageSuffix(`package`))
+      .:=(BLOCK(generateClasses(openAPI)))
+      .inPackage(`package`.substring(0, `package`.lastIndexOf('.')))
 
   def generateClasses(openAPI: OpenAPI): Iterable[DefTree] =
     Option(Option(openAPI.getComponents).map(_.getSchemas).orNull)
@@ -40,50 +48,35 @@ object TreeHuggerGenerator extends Generator {
       case _ => TYPEVAR(name).:=(STRING)
     }
 
+  def generateProperties(properties: Iterable[(String, Schema[_], Boolean)]): Iterable[ValDef] =
+    properties.map(tuple => generateParam(tuple._1, generateParamType(tuple._2), tuple._3))
+
   def withRequired(properties: util.Map[String, Schema[_]], required: util.List[String]): Iterable[(String, Schema[_], Boolean)] =
     Option(properties)
       .map(_.asScala)
       .map(_.map(tuple => (tuple._1, tuple._2, required != null && required.contains(tuple._1))))
       .getOrElse(List.empty)
 
-  def generateProperties(properties: Iterable[(String, Schema[_], Boolean)]): Iterable[ValDef] =
-    properties.map(tuple => generateParam(tuple._1, generateParamType(tuple._2), tuple._3))
+  override def generateService(`package`: String, path: String, openAPI: OpenAPI): String =
+    treeToString(generateServiceClass(`package`, path, OpenAPIReader.getMethods(openAPI).map(generateMethod)))
 
-  def generatePackageObject(`package`: String, openAPI: OpenAPI): PackageDef =
-    PACKAGEOBJECTDEF(getPackageSuffix(`package`))
-      .:=(BLOCK(generateClasses(openAPI)))
-      .inPackage(`package`.substring(0, `package`.lastIndexOf('.')))
-
-  def generateServiceTrait(`package`: String, methods: Iterable[DefDef]): PackageDef =
-    TRAITDEF(SERVICE_NAME)
-      .:=(BLOCK(methods))
+  def generateServiceClass(`package`: String, path: String, methods: Iterable[DefDef]): PackageDef = {
+    CLASSDEF(Main.SERVICE_NAME)
+      .withParams(PARAM("backend", BACKEND))
+      .withAnnots(ANNOT("SttpImplementation", LIT(path)))
+      .:=(BLOCK(methods.prepended(generateSttpImplicitBackend())))
       .inPackage(`package`)
+  }
+
+  def generateSttpImplicitBackend(): forest.ValDef =
+    VAL("implicitBackend", BACKEND)
+      .withFlags(Flags.IMPLICIT)
+      .:=(REF("backend"))
 
   def generateMethod(operation: Operation): DefDef =
     DEF(operation.getOperationId)
       .withParams(generateParams(operation))
       .withType(generateResponseType(operation.getResponses))
-
-  def generateResponseType(apiResponses: ApiResponses): Type =
-    Option(generateDefaultType(apiResponses))
-      .map(`type` =>
-        if (hasErrorResponse(apiResponses)) TYPE_EITHER(STRING, `type`)
-        else `type`)
-      .getOrElse(STRING)
-
-  def generateDefaultType(apiResponses: ApiResponses): Type =
-    Option(apiResponses.getOrDefault(CODE_200, apiResponses.getDefault))
-      .map(_.getContent)
-      .map(OpenAPIReader.getFirstSchema)
-      .map(generateParamType)
-      .getOrElse(STRING)
-
-  def hasErrorResponse(apiResponses: ApiResponses): Boolean =
-    Option(apiResponses.keySet())
-      .map(_.asScala)
-      .map(_.filterNot(_.equals(CODE_200)))
-      .map(_.filterNot(_.equals(CODE_DEFAULT)))
-      .exists(_.nonEmpty)
 
   def generateParams(operation: Operation): Iterable[ValDef] =
     appendNotNull(fromParameters(operation.getParameters), fromRequestBody(operation.getRequestBody))
@@ -97,6 +90,13 @@ object TreeHuggerGenerator extends Generator {
       .map(_.asScala.map(generateParam))
       .getOrElse(List.empty)
 
+  def generateParam(name: String, `type`: Type, required: Boolean): ValDef =
+    PARAM(name, wrapWithOption(`type`, required))
+
+  def wrapWithOption(`type`: Type, required: Boolean): Type =
+    if (required) `type`
+    else TYPE_OPTION(`type`)
+
   def fromRequestBody(requestBody: RequestBody): ValDef =
     Option(requestBody).map(_.getContent)
       .map(OpenAPIReader.getFirstSchema)
@@ -106,13 +106,6 @@ object TreeHuggerGenerator extends Generator {
 
   def generateParam(parameter: Parameter): ValDef =
     generateParam(parameter.getName, generateParamType(parameter.getSchema), parameter.getRequired)
-
-  def generateParam(name: String, `type`: Type, required: Boolean): ValDef =
-    PARAM(name, wrapWithOption(`type`, required))
-
-  def wrapWithOption(`type`: Type, required: Boolean): Type =
-    if (required) `type`
-    else TYPE_OPTION(`type`)
 
   def generateParamType(schema: Schema[_]): Type =
     schema match {
@@ -139,19 +132,34 @@ object TreeHuggerGenerator extends Generator {
       case _ => DOUBLE
     }
 
-  def generateTupleType(schema: Schema[_]): Type =
-    TYPE_TUPLE(schema.getProperties.asScala.values.map(generateParamType))
-
   def typeFromSchema(schema: Schema[_]): Type =
     if (schema.getName != null) TYPE_REF(schema.getName)
     else if (schema.get$ref() != null) TYPE_REF(getRefSuffix(schema.get$ref()))
     else if (schema.getProperties != null && !schema.getProperties.isEmpty) generateTupleType(schema)
     else STRING
 
-  def getSuffix(separator: Char)(string: String): String =
-    string.split(separator).last
+  def generateTupleType(schema: Schema[_]): Type =
+    TYPE_TUPLE(schema.getProperties.asScala.values.map(generateParamType))
 
-  val getRefSuffix: String => String = getSuffix('/')
-  val getPackageSuffix: String => String = getSuffix('.')
+  def generateResponseType(apiResponses: ApiResponses): Type =
+    Option(generateDefaultType(apiResponses))
+      .map(`type` =>
+        if (hasErrorResponse(apiResponses)) TYPE_EITHER(STRING, `type`)
+        else `type`)
+      .getOrElse(STRING)
+
+  def generateDefaultType(apiResponses: ApiResponses): Type =
+    Option(apiResponses.getOrDefault(CODE_200, apiResponses.getDefault))
+      .map(_.getContent)
+      .map(OpenAPIReader.getFirstSchema)
+      .map(generateParamType)
+      .getOrElse(STRING)
+
+  def hasErrorResponse(apiResponses: ApiResponses): Boolean =
+    Option(apiResponses.keySet())
+      .map(_.asScala)
+      .map(_.filterNot(_.equals(CODE_200)))
+      .map(_.filterNot(_.equals(CODE_DEFAULT)))
+      .exists(_.nonEmpty)
 
 }
